@@ -141,6 +141,7 @@ type CallbackData struct {
 // end of callback data
 
 // SendSMSV1 function to send message using V1 Zenziva API.
+// This function is based on this documentation: https://reguler.zenziva.net/apps/download/Zenziva-SMSReguler-HttpApi.pdf.
 func (s *Sender) SendSMSV1(request ReqMessage) (respBody ResponseBody, err error) {
 	req, err := http.NewRequest(http.MethodGet, s.config.BaseURL, nil)
 	if err != nil {
