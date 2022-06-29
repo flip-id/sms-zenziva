@@ -1,4 +1,6 @@
 # zenziva
+<a title="Doc for package zenziva." target="_blank" href="https://pkg.go.dev/github.com/flip-id/sms-zenziva?tab=doc"><img src="https://img.shields.io/badge/go.dev-doc-007d9c?style=flat-square&logo=read-the-docs"></a>
+[![Go Report Card](https://goreportcard.com/badge/github.com/flip-id/sms-zenziva)](https://goreportcard.com/report/github.com/flip-id/sms-zenziva)
 
 Package zenziva is a library to use the Zenziva service.
 This library uses [Hystrix client](https://github.com/gojek/heimdall/v7) as its underlying HTTP client.
