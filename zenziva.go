@@ -1,40 +1,86 @@
-package sms_zenziva_local
+package zenziva
 
 import (
 	"encoding/xml"
-	"errors"
-	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/gojek/heimdall/v7"
+	"github.com/gojek/heimdall/v7/hystrix"
 	log "github.com/sirupsen/logrus"
 )
 
-// Config config app for zenziva
+const (
+	// DefaultTimeout sets the default timeout of the HTTP client.
+	DefaultTimeout = 30 * time.Second
+)
+
+// Config is a config app for Zenziva.
 type Config struct {
-	BaseUrl        string
+	BaseURL        string
 	UserKey        string
 	PasswordKey    string
-	ConnectTimeout int
+	ConnectTimeout time.Duration
+	Client         heimdall.Doer
 }
 
-type Sender struct {
-	Config Config
+// Validate validates the config variables to ensure smooth integration.
+func (c *Config) Validate() (err error) {
+	if c.UserKey == "" {
+		err = ErrEmptyUserKey
+		return
+	}
+
+	if c.PasswordKey == "" {
+		err = ErrEmptyPasswordKey
+		return
+	}
+
+	return
 }
+
+// DefaultV1 sets the config default value for version 1.
+func (c *Config) DefaultV1() *Config {
+	if c.BaseURL == "" {
+		c.BaseURL = "https://reguler.zenziva.net/apps/smsapi.php"
+	}
+
+	return c.defaultVal()
+}
+
+func (c *Config) defaultVal() *Config {
+	if c.ConnectTimeout < DefaultTimeout {
+		c.ConnectTimeout = DefaultTimeout
+	}
+
+	if c.Client == nil {
+		c.Client = http.DefaultClient
+	}
+
+	return c
+}
+
+// Sender is a client of Zenziva.
+type Sender struct {
+	client *hystrix.Client
+	config *Config
+}
+
 // end of config
 
-// Message Response from zenziva
+// Message is a response from Zenziva.
 type Message struct {
 	XMLName   xml.Name `xml:"message"`
-	MessageId string   `xml:"messageId"`
+	MessageID string   `xml:"messageId"`
 	To        string   `xml:"to"`
 	Status    int      `xml:"status"`
 	Text      string   `xml:"text"`
 	Balance   int      `xml:"balance"`
 }
 
+// ResponseBody is an XML response body from the Zenziva.
 type ResponseBody struct {
 	XMLName xml.Name `xml:"response"`
 	Message Message  `xml:"message"`
@@ -42,7 +88,7 @@ type ResponseBody struct {
 
 // end of response
 
-// ReqMessage request for zenziva
+// ReqMessage is a request for Zenziva.
 type ReqMessage struct {
 	PhoneNumber string
 	Text        string
@@ -50,13 +96,31 @@ type ReqMessage struct {
 
 // end of request
 
-func New(config Config) *Sender {
-	return &Sender{
-		Config: config,
+// NewV1 initializes a new Sender for the version 1 of Zenziva API.
+func NewV1(config *Config) (client *Sender, err error) {
+	if config == nil {
+		err = ErrNilArgs
+		return
 	}
+
+	err = config.Validate()
+	if err != nil {
+		return
+	}
+
+	config = config.DefaultV1()
+	client = &Sender{
+		client: hystrix.NewClient(
+			hystrix.WithHTTPTimeout(config.ConnectTimeout),
+			hystrix.WithHystrixTimeout(config.ConnectTimeout),
+			hystrix.WithHTTPClient(config.Client),
+		),
+		config: config,
+	}
+	return
 }
 
-// CallbackData callback data
+// CallbackData is a callback data.
 type CallbackData struct {
 	Error struct {
 		Description string `json:"description"`
@@ -73,65 +137,51 @@ type CallbackData struct {
 	Balance   int    `json:"balance"`
 	SentAt    string `json:"sent_at"`
 }
+
 // end of callback data
 
-// SendSMS function to send message
-func (s *Sender) SendSMS(request ReqMessage) (ResponseBody, error) {
-	path := fmt.Sprintf("%s", s.Config.BaseUrl)
+// SendSMSV1 function to send message using V1 Zenziva API.
+func (s *Sender) SendSMSV1(request ReqMessage) (respBody ResponseBody, err error) {
+	req, err := http.NewRequest(http.MethodGet, s.config.BaseURL, nil)
+	if err != nil {
+		log.Error(err)
+		return
+	}
 
-	req, err := http.NewRequest(http.MethodGet, path, nil)
 	param := req.URL.Query()
-	param.Add("userkey", s.Config.UserKey)
-	param.Add("passkey", s.Config.PasswordKey)
+	param.Add("userkey", s.config.UserKey)
+	param.Add("passkey", s.config.PasswordKey)
 	param.Add("nohp", request.PhoneNumber)
 	param.Add("pesan", request.Text)
 	req.URL.RawQuery = param.Encode()
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
+	req.Header.Add(fiber.HeaderContentType, fiber.MIMEApplicationForm)
+	res, err := s.client.Do(req)
 	if err != nil {
-		log.Error(err)
-		return ResponseBody{}, err
-	}
-
-	timeout := s.Config.ConnectTimeout
-	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
-	}
-
-	res, err := client.Do(req)
-
-	if err != nil {
-		log.Error(err)
-		return ResponseBody{}, err
-	}
-
-	if res.StatusCode >= 400 {
-		log.Error(res)
-		return ResponseBody{}, errors.New("failed to send SMS")
+		log.Error(res, err)
+		return
 	}
 
 	defer func(Body io.ReadCloser) {
+		if Body == nil {
+			return
+		}
+
 		err := Body.Close()
 		if err != nil {
-			log.Error(res)
-			return
+			log.Error(res, err)
 		}
 	}(res.Body)
 
-	body, err := ioutil.ReadAll(res.Body)
-	resBody := ResponseBody{}
-
-	if err != nil {
+	if res.StatusCode >= http.StatusBadRequest {
 		log.Error(res)
-		return ResponseBody{}, err
+		err = ErrFailedToSendSMS
+		return
 	}
 
-	err = xml.Unmarshal(body, &resBody)
-
+	err = xml.NewDecoder(res.Body).Decode(&respBody)
 	if err != nil {
-		log.Error(res)
-		return ResponseBody{}, err
+		log.Error(res, err)
 	}
 
-	return resBody, nil
+	return
 }
