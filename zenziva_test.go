@@ -2,8 +2,11 @@ package zenziva
 
 import (
 	"encoding/xml"
+	"github.com/gojek/heimdall/v7/hystrix"
+	"github.com/shopspring/decimal"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/assert"
@@ -11,7 +14,7 @@ import (
 
 func TestNewV1(t *testing.T) {
 	type args struct {
-		config *Config
+		opts []FnOption
 	}
 	tests := []struct {
 		name          string
@@ -30,7 +33,7 @@ func TestNewV1(t *testing.T) {
 		{
 			name: "empty user key",
 			args: func() args {
-				return args{config: &Config{}}
+				return args{opts: nil}
 			},
 			wantNilClient: true,
 			wantErr:       true,
@@ -38,8 +41,8 @@ func TestNewV1(t *testing.T) {
 		{
 			name: "empty password key",
 			args: func() args {
-				return args{config: &Config{
-					UserKey: "test-user",
+				return args{opts: []FnOption{
+					WithUserKey("user"),
 				}}
 			},
 			wantNilClient: true,
@@ -48,11 +51,14 @@ func TestNewV1(t *testing.T) {
 		{
 			name: "success getting the client",
 			args: func() args {
-				c := &Config{
-					UserKey:     "test",
-					PasswordKey: "test",
-				}
-				return args{c}
+				return args{opts: []FnOption{
+					WithUserKey("user-key"),
+					WithPasswordKey("password-key"),
+					WithTimeout(30 * time.Second),
+					WithHystrixOptions(
+						hystrix.WithHystrixTimeout(30 * time.Second),
+					),
+				}}
 			},
 			wantNilClient: false,
 			wantErr:       false,
@@ -61,7 +67,7 @@ func TestNewV1(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			args := tt.args()
-			gotClient, err := NewV1(args.config)
+			gotClient, err := NewV1(args.opts...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewV1() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -74,78 +80,78 @@ func TestNewV1(t *testing.T) {
 	}
 }
 
-func getSender(c *Config) *Sender {
-	s, _ := NewV1(c)
+func getSender(opts ...FnOption) Sender {
+	s, _ := NewV1(opts...)
 	return s
 }
 
 func TestSender_SendSMSV1(t *testing.T) {
 	type args struct {
-		request ReqMessage
+		request RequestSendSMSV1
 	}
 	tests := []struct {
 		name         string
-		s            func() *Sender
+		s            func() Sender
 		args         func() args
-		wantRespBody func() ResponseBody
+		wantRespBody func() ResponseXML
 		wantErr      bool
 		responder    func()
 	}{
 		{
 			name: "invalid base URL",
-			s: func() *Sender {
-				return getSender(&Config{
-					BaseURL:     "://test",
-					UserKey:     "test-user",
-					PasswordKey: "test-password",
-				})
+			s: func() Sender {
+				return getSender(
+					WithBaseURL("://test"),
+					WithUserKey("test-user"),
+					WithPasswordKey("test-password"),
+				)
 			},
 			args: func() args {
 				return args{
-					request: ReqMessage{},
+					request: RequestSendSMSV1{},
 				}
 			},
-			wantRespBody: func() ResponseBody {
-				return ResponseBody{}
+			wantRespBody: func() ResponseXML {
+				return ResponseXML{}
 			},
 			wantErr: true,
 		},
 		{
 			name: "server is unreachable",
-			s: func() *Sender {
-				return getSender(&Config{
-					BaseURL:     "flip://test.local",
-					UserKey:     "test-user",
-					PasswordKey: "test-password",
-				})
+			s: func() Sender {
+				return getSender(
+					WithBaseURL("flip://test.local"),
+					WithUserKey("test-user"),
+					WithPasswordKey("test-password"),
+				)
 			},
 			args: func() args {
 				return args{
-					request: ReqMessage{},
+					request: RequestSendSMSV1{},
 				}
 			},
-			wantRespBody: func() ResponseBody {
-				return ResponseBody{}
+			wantRespBody: func() ResponseXML {
+				return ResponseXML{}
 			},
 			wantErr: true,
 		},
 		{
 			name: "bad request from the server",
-			s: func() *Sender {
-				return getSender(&Config{
-					BaseURL:     "flip://test.local",
-					UserKey:     "test-user",
-					PasswordKey: "test-password",
-					Client:      http.DefaultClient,
-				})
+			s: func() Sender {
+				return getSender(
+					WithBaseURL("flip://test.local"),
+					WithUserKey("test-user"),
+					WithPasswordKey("test-password"),
+					WithClient(http.DefaultClient),
+				)
 			},
 			args: func() args {
 				return args{
-					request: ReqMessage{},
+					request: RequestSendSMSV1{},
 				}
 			},
-			wantRespBody: func() ResponseBody {
-				return ResponseBody{}
+			wantRespBody: func() ResponseXML {
+				return ResponseXML{}
 			},
 			wantErr: true,
 			responder: func() {
@@ -159,21 +165,21 @@ func TestSender_SendSMSV1(t *testing.T) {
 		},
 		{
 			name: "xml decode error",
-			s: func() *Sender {
-				return getSender(&Config{
-					BaseURL:     "flip://test.local",
-					UserKey:     "test-user",
-					PasswordKey: "test-password",
-					Client:      http.DefaultClient,
-				})
+			s: func() Sender {
+				return getSender(
+					WithBaseURL("flip://test.local"),
+					WithUserKey("test-user"),
+					WithPasswordKey("test-password"),
+					WithClient(http.DefaultClient),
+				)
 			},
 			args: func() args {
 				return args{
-					request: ReqMessage{},
+					request: RequestSendSMSV1{},
 				}
 			},
-			wantRespBody: func() ResponseBody {
-				return ResponseBody{}
+			wantRespBody: func() ResponseXML {
+				return ResponseXML{}
 			},
 			wantErr: true,
 			responder: func() {
@@ -187,21 +193,21 @@ func TestSender_SendSMSV1(t *testing.T) {
 		},
 		{
 			name: "no responder",
-			s: func() *Sender {
-				return getSender(&Config{
-					BaseURL:     "flip://test.local",
-					UserKey:     "test-user",
-					PasswordKey: "test-password",
-					Client:      http.DefaultClient,
-				})
+			s: func() Sender {
+				return getSender(
+					WithBaseURL("flip://test.local"),
+					WithUserKey("test-user"),
+					WithPasswordKey("test-password"),
+					WithClient(http.DefaultClient),
+				)
 			},
 			args: func() args {
 				return args{
-					request: ReqMessage{},
+					request: RequestSendSMSV1{},
 				}
 			},
-			wantRespBody: func() ResponseBody {
-				return ResponseBody{}
+			wantRespBody: func() ResponseXML {
+				return ResponseXML{}
 			},
 			wantErr: true,
 			responder: func() {
@@ -213,21 +219,21 @@ func TestSender_SendSMSV1(t *testing.T) {
 		},
 		{
 			name: "nil body",
-			s: func() *Sender {
-				return getSender(&Config{
-					BaseURL:     "flip://test.local",
-					UserKey:     "test-user",
-					PasswordKey: "test-password",
-					Client:      http.DefaultClient,
-				})
+			s: func() Sender {
+				return getSender(
+					WithBaseURL("flip://test.local"),
+					WithUserKey("test-user"),
+					WithPasswordKey("test-password"),
+					WithClient(http.DefaultClient),
+				)
 			},
 			args: func() args {
 				return args{
-					request: ReqMessage{},
+					request: RequestSendSMSV1{},
 				}
 			},
-			wantRespBody: func() ResponseBody {
-				return ResponseBody{}
+			wantRespBody: func() ResponseXML {
+				return ResponseXML{}
 			},
 			wantErr: true,
 			responder: func() {
@@ -244,32 +250,30 @@ func TestSender_SendSMSV1(t *testing.T) {
 		},
 		{
 			name: "no user key",
-			s: func() *Sender {
-				s := getSender(&Config{
-					BaseURL:     "flip://test.local",
-					UserKey:     "test-user",
-					PasswordKey: "test-password",
-					Client:      http.DefaultClient,
-				})
-				s.config.UserKey = ""
-				return s
+			s: func() Sender {
+				opt := (new(Option)).Assign(
+					WithBaseURL("flip://test.local"),
+					WithPasswordKey("test-password"),
+					WithClient(http.DefaultClient),
+				).DefaultV1()
+				return &sender{opt}
 			},
 			args: func() args {
 				return args{
-					request: ReqMessage{},
+					request: RequestSendSMSV1{},
 				}
 			},
-			wantRespBody: func() ResponseBody {
-				return ResponseBody{
+			wantRespBody: func() ResponseXML {
+				return ResponseXML{
 					XMLName: xml.Name{Local: "response"},
-					Message: Message{
+					Message: ResponseXMLMessage{
 						XMLName: xml.Name{Local: "message"},
 						Status:  5,
 						Text:    "Userkey atau Passkey Salah",
 					},
 				}
 			},
-			wantErr: false,
+			wantErr: true,
 			responder: func() {
 				httpmock.Activate()
 				httpmock.RegisterResponder(http.MethodGet, "flip://test.local", httpmock.NewXmlResponderOrPanic(http.StatusOK, httpmock.File("example/error.xml")))
@@ -277,31 +281,29 @@ func TestSender_SendSMSV1(t *testing.T) {
 		},
 		{
 			name: "success send sms",
-			s: func() *Sender {
-				s := getSender(&Config{
-					BaseURL:     "flip://test.local",
-					UserKey:     "test-user",
-					PasswordKey: "test-password",
-					Client:      http.DefaultClient,
-				})
-				s.config.UserKey = ""
-				return s
+			s: func() Sender {
+				return getSender(
+					WithBaseURL("flip://test.local"),
+					WithUserKey("test-user"),
+					WithPasswordKey("test-password"),
+					WithClient(http.DefaultClient),
+				)
 			},
 			args: func() args {
 				return args{
-					request: ReqMessage{},
+					request: RequestSendSMSV1{},
 				}
 			},
-			wantRespBody: func() ResponseBody {
-				return ResponseBody{
+			wantRespBody: func() ResponseXML {
+				return ResponseXML{
 					XMLName: xml.Name{Local: "response"},
-					Message: Message{
+					Message: ResponseXMLMessage{
 						XMLName:   xml.Name{Local: "message"},
 						MessageID: "59167697",
 						To:        "+6289662233555",
 						Status:    0,
 						Text:      "Success",
-						Balance:   4695,
+						Balance:   decimal.NewFromInt(4695),
 					},
 				}
 			},

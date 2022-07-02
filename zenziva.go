@@ -2,187 +2,111 @@ package zenziva
 
 import (
 	"encoding/xml"
-	"io"
-	"net/http"
-	"time"
-
 	"github.com/gofiber/fiber/v2"
-	"github.com/gojek/heimdall/v7"
-	"github.com/gojek/heimdall/v7/hystrix"
-	log "github.com/sirupsen/logrus"
+	"github.com/shopspring/decimal"
+	"net/http"
 )
 
-const (
-	// DefaultTimeout sets the default timeout of the HTTP client.
-	DefaultTimeout = 30 * time.Second
-)
-
-// Config is a config app for Zenziva.
-type Config struct {
-	BaseURL        string
-	UserKey        string
-	PasswordKey    string
-	ConnectTimeout time.Duration
-	Client         heimdall.Doer
+// Sender is a client of Zenziva.
+type Sender interface {
+	// SendSMSV1 function to send message using V1 Zenziva API.
+	// This function is based on this documentation: https://reguler.zenziva.net/apps/download/Zenziva-SMSReguler-HttpApi.pdf.
+	SendSMSV1(request RequestSendSMSV1) (respBody ResponseXML, err error)
 }
 
-// Validate validates the config variables to ensure smooth integration.
-func (c *Config) Validate() (err error) {
-	if c.UserKey == "" {
-		err = ErrEmptyUserKey
-		return
+type sender struct {
+	opt *Option
+}
+
+// Assign assigns the given options to the sender.
+func (s *sender) Assign(opt *Option) *sender {
+	if opt == nil {
+		return s
 	}
 
-	if c.PasswordKey == "" {
-		err = ErrEmptyPasswordKey
-		return
-	}
+	newOpt := *opt
+	s.opt = &newOpt
+	return s
+}
 
+// ResponseXMLMessage is a response message from Zenziva.
+type ResponseXMLMessage struct {
+	XMLName   xml.Name        `xml:"message"`
+	MessageID string          `xml:"messageId"`
+	To        string          `xml:"to"`
+	Status    int             `xml:"status"`
+	Text      string          `xml:"text"`
+	Balance   decimal.Decimal `xml:"balance"`
+}
+
+// ResponseXML is an XML template response from Zenziva.
+type ResponseXML struct {
+	XMLName xml.Name           `xml:"response"`
+	Message ResponseXMLMessage `xml:"message"`
+}
+
+// GetError returns an error if the response from Zenziva is not successful.
+func (r *ResponseXML) GetError() (err error) {
+	err = (new(Error)).Assign(r.Message)
 	return
 }
 
-// DefaultV1 sets the config default value for version 1.
-func (c *Config) DefaultV1() *Config {
-	if c.BaseURL == "" {
-		c.BaseURL = "https://reguler.zenziva.net/apps/smsapi.php"
-	}
-
-	return c.defaultVal()
-}
-
-func (c *Config) defaultVal() *Config {
-	if c.ConnectTimeout < DefaultTimeout {
-		c.ConnectTimeout = DefaultTimeout
-	}
-
-	if c.Client == nil {
-		c.Client = http.DefaultClient
-	}
-
-	return c
-}
-
-// Sender is a client of Zenziva.
-type Sender struct {
-	client *hystrix.Client
-	config *Config
-}
-
-// end of config
-
-// Message is a response from Zenziva.
-type Message struct {
-	XMLName   xml.Name `xml:"message"`
-	MessageID string   `xml:"messageId"`
-	To        string   `xml:"to"`
-	Status    int      `xml:"status"`
-	Text      string   `xml:"text"`
-	Balance   int      `xml:"balance"`
-}
-
-// ResponseBody is an XML response body from the Zenziva.
-type ResponseBody struct {
-	XMLName xml.Name `xml:"response"`
-	Message Message  `xml:"message"`
-}
-
-// end of response
-
-// ReqMessage is a request for Zenziva.
-type ReqMessage struct {
+// RequestSendSMSV1 is a request for send SMS version 1 to Zenziva.
+type RequestSendSMSV1 struct {
 	PhoneNumber string
 	Text        string
 }
 
-// end of request
-
 // NewV1 initializes a new Sender for the version 1 of Zenziva API.
-func NewV1(config *Config) (client *Sender, err error) {
-	if config == nil {
-		err = ErrNilArgs
-		return
-	}
+func NewV1(opts ...FnOption) (client Sender, err error) {
+	opt := (new(Option)).Assign(opts...).DefaultV1()
 
-	err = config.Validate()
+	err = opt.Validate()
 	if err != nil {
 		return
 	}
 
-	config = config.DefaultV1()
-	client = &Sender{
-		client: hystrix.NewClient(
-			hystrix.WithHTTPTimeout(config.ConnectTimeout),
-			hystrix.WithHystrixTimeout(config.ConnectTimeout),
-			hystrix.WithHTTPClient(config.Client),
-		),
-		config: config,
-	}
+	client = new(sender).Assign(opt)
 	return
 }
 
-// CallbackData is a callback data.
-type CallbackData struct {
-	Error struct {
-		Description string `json:"description"`
-		GroupID     int    `json:"group_id"`
-		GroupName   string `json:"group_name"`
-		ID          int    `json:"id"`
-		Name        string `json:"name"`
-		Permanent   bool   `json:"permanent"`
-	} `json:"error"`
-	MessageID string `json:"message_id"`
-	To        string `json:"to"`
-	Status    int    `json:"status"`
-	Text      string `json:"text"`
-	Balance   int    `json:"balance"`
-	SentAt    string `json:"sent_at"`
-}
-
-// end of callback data
-
 // SendSMSV1 function to send message using V1 Zenziva API.
 // This function is based on this documentation: https://reguler.zenziva.net/apps/download/Zenziva-SMSReguler-HttpApi.pdf.
-func (s *Sender) SendSMSV1(request ReqMessage) (respBody ResponseBody, err error) {
-	req, err := http.NewRequest(http.MethodGet, s.config.BaseURL, nil)
+func (s *sender) SendSMSV1(request RequestSendSMSV1) (respBody ResponseXML, err error) {
+	req, err := http.NewRequest(http.MethodGet, s.opt.BaseURL, nil)
 	if err != nil {
-		log.Error(err)
 		return
 	}
 
 	param := req.URL.Query()
-	param.Add("userkey", s.config.UserKey)
-	param.Add("passkey", s.config.PasswordKey)
+	param.Add("userkey", s.opt.UserKey)
+	param.Add("passkey", s.opt.PasswordKey)
 	param.Add("nohp", request.PhoneNumber)
 	param.Add("pesan", request.Text)
 	req.URL.RawQuery = param.Encode()
 	req.Header.Add(fiber.HeaderContentType, fiber.MIMEApplicationForm)
-	res, err := s.client.Do(req)
+	res, err := s.opt.client.Do(req)
 	if err != nil {
-		log.Error(res, err)
 		return
 	}
-
-	defer func(Body io.ReadCloser) {
-		if Body == nil {
+	defer func() {
+		if res.Body == nil {
 			return
 		}
 
-		err := Body.Close()
-		if err != nil {
-			log.Error(res, err)
-		}
-	}(res.Body)
+		_ = res.Body.Close()
+	}()
 
 	if res.StatusCode >= http.StatusBadRequest {
-		log.Error(res)
 		err = ErrFailedToSendSMS
 		return
 	}
 
 	err = xml.NewDecoder(res.Body).Decode(&respBody)
 	if err != nil {
-		log.Error(res, err)
+		return
 	}
 
+	err = respBody.GetError()
 	return
 }
