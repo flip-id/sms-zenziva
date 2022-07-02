@@ -55,7 +55,7 @@ func WithClient(c heimdall.Doer) FnOption {
 // WithHystrixOptions sets the hystrix options.
 func WithHystrixOptions(opts ...hystrix.Option) FnOption {
 	return func(o *Option) {
-		o.FnOptions = append(o.FnOptions, opts...)
+		o.HystrixOptions = append(o.HystrixOptions, opts...)
 	}
 }
 
@@ -66,7 +66,7 @@ type Option struct {
 	PasswordKey    string
 	ConnectTimeout time.Duration
 	Client         heimdall.Doer
-	FnOptions      []hystrix.Option
+	HystrixOptions []hystrix.Option
 	client         *hystrix.Client
 }
 
@@ -112,7 +112,7 @@ func (o *Option) defaultVal() *Option {
 		hystrix.WithHTTPTimeout(o.ConnectTimeout),
 		hystrix.WithHystrixTimeout(o.ConnectTimeout),
 		hystrix.WithHTTPClient(o.Client),
-	}, o.FnOptions...)
+	}, o.HystrixOptions...)
 	o.client = hystrix.NewClient(opts...)
 	return o
 }
