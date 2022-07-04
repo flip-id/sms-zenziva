@@ -32,14 +32,17 @@ func (s *sender) Assign(opt *Option) *sender {
 	return s
 }
 
-// ResponseXMLMessage is a response message from Zenziva.
-type ResponseXMLMessage struct {
-	XMLName   xml.Name        `xml:"message"`
-	MessageID string          `xml:"messageId"`
-	To        string          `xml:"to"`
-	Status    int             `xml:"status"`
-	Text      string          `xml:"text"`
-	Balance   decimal.Decimal `xml:"balance"`
+// NewV1 initializes a new Sender for the version 1 of Zenziva API.
+func NewV1(opts ...FnOption) (client Sender, err error) {
+	opt := (new(Option)).Assign(opts...).DefaultV1()
+
+	err = opt.Validate()
+	if err != nil {
+		return
+	}
+
+	client = new(sender).Assign(opt)
+	return
 }
 
 // ResponseXML is an XML template response from Zenziva.
@@ -54,23 +57,20 @@ func (r *ResponseXML) GetError() (err error) {
 	return
 }
 
+// ResponseXMLMessage is a response message from Zenziva.
+type ResponseXMLMessage struct {
+	XMLName   xml.Name        `xml:"message"`
+	MessageID string          `xml:"messageId"`
+	To        string          `xml:"to"`
+	Status    int             `xml:"status"`
+	Text      string          `xml:"text"`
+	Balance   decimal.Decimal `xml:"balance"`
+}
+
 // RequestSendSMSV1 is a request for send SMS version 1 to Zenziva.
 type RequestSendSMSV1 struct {
 	PhoneNumber string
 	Text        string
-}
-
-// NewV1 initializes a new Sender for the version 1 of Zenziva API.
-func NewV1(opts ...FnOption) (client Sender, err error) {
-	opt := (new(Option)).Assign(opts...).DefaultV1()
-
-	err = opt.Validate()
-	if err != nil {
-		return
-	}
-
-	client = new(sender).Assign(opt)
-	return
 }
 
 // SendSMSV1 function to send message using V1 Zenziva API.
@@ -101,8 +101,8 @@ func (s *sender) SendSMSV1(ctx context.Context, request RequestSendSMSV1) (respB
 		_ = res.Body.Close()
 	}()
 
-	if res.StatusCode >= http.StatusBadRequest {
-		err = ErrFailedToSendSMS
+	err = s.formatUnknown(res)
+	if err != nil {
 		return
 	}
 
@@ -112,5 +112,18 @@ func (s *sender) SendSMSV1(ctx context.Context, request RequestSendSMSV1) (respB
 	}
 
 	err = respBody.GetError()
+	return
+}
+
+func (s *sender) isError(resp *http.Response) bool {
+	return resp.StatusCode >= http.StatusBadRequest
+}
+
+func (s *sender) formatUnknown(resp *http.Response) (err error) {
+	if !s.isError(resp) {
+		return
+	}
+
+	err = formatUnknown(resp)
 	return
 }
