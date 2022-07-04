@@ -26,6 +26,7 @@ Script:
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -41,7 +42,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	resp, err := c.SendSMSV1(RequestSendSMSV1{
+	resp, err := c.SendSMSV1(context.Background(), RequestSendSMSV1{
 		PhoneNumber: "+6281001002003",
 		Text:        "Hello Zenziva!",
 	})

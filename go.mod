@@ -1,4 +1,4 @@
-module github.com/flip-id/sms-zenziva
+module github.com/flip-id/sms-zenziva/v2
 
 go 1.15
 

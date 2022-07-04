@@ -1,6 +1,7 @@
 package zenziva
 
 import (
+	"context"
 	"encoding/xml"
 	"github.com/gofiber/fiber/v2"
 	"github.com/shopspring/decimal"
@@ -11,7 +12,9 @@ import (
 type Sender interface {
 	// SendSMSV1 function to send message using V1 Zenziva API.
 	// This function is based on this documentation: https://reguler.zenziva.net/apps/download/Zenziva-SMSReguler-HttpApi.pdf.
-	SendSMSV1(request RequestSendSMSV1) (respBody ResponseXML, err error)
+	// This function will return error if the response from Zenziva is not successful.
+	// This function will return respBody with the error message even if the response from Zenziva is not successful.
+	SendSMSV1(ctx context.Context, request RequestSendSMSV1) (respBody ResponseXML, err error)
 }
 
 type sender struct {
@@ -72,7 +75,7 @@ func NewV1(opts ...FnOption) (client Sender, err error) {
 
 // SendSMSV1 function to send message using V1 Zenziva API.
 // This function is based on this documentation: https://reguler.zenziva.net/apps/download/Zenziva-SMSReguler-HttpApi.pdf.
-func (s *sender) SendSMSV1(request RequestSendSMSV1) (respBody ResponseXML, err error) {
+func (s *sender) SendSMSV1(ctx context.Context, request RequestSendSMSV1) (respBody ResponseXML, err error) {
 	req, err := http.NewRequest(http.MethodGet, s.opt.BaseURL, nil)
 	if err != nil {
 		return
@@ -85,6 +88,7 @@ func (s *sender) SendSMSV1(request RequestSendSMSV1) (respBody ResponseXML, err 
 	param.Add("pesan", request.Text)
 	req.URL.RawQuery = param.Encode()
 	req.Header.Add(fiber.HeaderContentType, fiber.MIMEApplicationForm)
+	req = req.WithContext(ctx)
 	res, err := s.opt.client.Do(req)
 	if err != nil {
 		return
