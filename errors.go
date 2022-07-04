@@ -4,11 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
+	"io"
+	"net/http"
 )
 
 // List of errors in the Zenziva package.
 var (
-	ErrFailedToSendSMS  = errors.New("failed to send SMS")
 	ErrEmptyUserKey     = errors.New("empty user key")
 	ErrEmptyPasswordKey = errors.New("empty password key")
 )
@@ -47,4 +48,29 @@ func (e *Error) Assign(resp ResponseXMLMessage) error {
 	e.Text = resp.Text
 	e.Balance = resp.Balance
 	return e
+}
+
+func formatUnknown(resp *http.Response) (err error) {
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
+	err = &UnknownError{
+		Message: string(b),
+	}
+	return
+}
+
+// UnknownError is an unknown error that sent by Zenziva.
+type UnknownError struct {
+	Message interface{} `json:"message"`
+}
+
+// Error returns the error message.
+func (e *UnknownError) Error() string {
+	return fmt.Sprintf(
+		"unknown error Zenziva: %v",
+		e.Message,
+	)
 }
