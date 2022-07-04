@@ -1,6 +1,7 @@
 package zenziva
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,7 +17,7 @@ func ExampleNewV1() {
 		log.Fatal(err)
 	}
 
-	resp, err := c.SendSMSV1(RequestSendSMSV1{
+	resp, err := c.SendSMSV1(context.Background(), RequestSendSMSV1{
 		PhoneNumber: "+6281001002003",
 		Text:        "Hello Zenziva!",
 	})

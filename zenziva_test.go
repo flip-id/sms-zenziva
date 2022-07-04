@@ -1,6 +1,7 @@
 package zenziva
 
 import (
+	"context"
 	"encoding/xml"
 	"github.com/gojek/heimdall/v7/hystrix"
 	"github.com/shopspring/decimal"
@@ -323,7 +324,7 @@ func TestSender_SendSMSV1(t *testing.T) {
 
 			args := tt.args()
 			s := tt.s()
-			gotRespBody, err := s.SendSMSV1(args.request)
+			gotRespBody, err := s.SendSMSV1(context.TODO(), args.request)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Sender.SendSMSV1() error = %v, wantErr %v", err, tt.wantErr)
 				return
