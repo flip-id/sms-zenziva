@@ -3,6 +3,7 @@ package zenziva
 import (
 	"context"
 	"encoding/xml"
+	"github.com/fairyhunter13/phone"
 	"github.com/gofiber/fiber/v2"
 	"github.com/shopspring/decimal"
 	"net/http"
@@ -73,6 +74,12 @@ type RequestSendSMSV1 struct {
 	Text        string
 }
 
+// Normalize normalizes the request.
+func (r *RequestSendSMSV1) Normalize() *RequestSendSMSV1 {
+	r.PhoneNumber = phone.NormalizeID(r.PhoneNumber, 0)
+	return r
+}
+
 // SendSMSV1 function to send message using V1 Zenziva API.
 // This function is based on this documentation: https://reguler.zenziva.net/apps/download/Zenziva-SMSReguler-HttpApi.pdf.
 func (s *sender) SendSMSV1(ctx context.Context, request RequestSendSMSV1) (respBody ResponseXML, err error) {
@@ -81,6 +88,7 @@ func (s *sender) SendSMSV1(ctx context.Context, request RequestSendSMSV1) (respB
 		return
 	}
 
+	request.Normalize()
 	param := req.URL.Query()
 	param.Add("userkey", s.opt.UserKey)
 	param.Add("passkey", s.opt.PasswordKey)
